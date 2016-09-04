@@ -8,18 +8,130 @@ output:
 
 ## Loading and preprocessing the data
 
+```{r echo=TRUE, results='markup', message=F, warning=F}
+library(dplyr)
+library(ggplot2)
+
+unzip("activity.zip")
+d <- read.csv("activity.csv", header=TRUE, na.strings = "NA")
+d$date <- as.Date(d$date)
+```
 
 
 ## What is mean total number of steps taken per day?
+First, We will group the data frame by date.
+```{r echo=TRUE, results='markup',message=F, warning=F}
+# group by date
+dGroupedByDate <- group_by(d, date)
+# calculate mean, median, and totalsteps using the summarise function
+dSummary<- summarise(dGroupedByDate, meanSteps=mean(steps), medianSteps=median(steps, na.rm=TRUE),  totalSteps=sum(steps))
+```
 
+
+**Histogram of the total number of steps taken each day**
+let's plot the data to see the total number of steps taken each day
+```{r echo=TRUE, results='markup',message=F, warning=F}
+qplot(totalSteps, data=dSummary,geom="histogram", main="Histogram of the total number of steps taken each day")
+```
+
+**Mean and median total number of steps taken per day:**
+```{r echo=TRUE, results='markup',message=F, warning=F}
+print(dSummary, n=nrow(dSummary))
+```
 
 
 ## What is the average daily activity pattern?
+First, we need to group the observations by time intervals accross all days. then, calaculate the mean of steps per each interval.
+```{r echo=TRUE, results='markup',message=F, warning=F}
+dGroupedByInterval <- group_by(d, interval)
+dSummaryInterval<- summarise(dGroupedByInterval, meanSteps=mean(steps, na.rm=TRUE))
 
-
+qplot(interval, meanSteps, data=dSummaryInterval,geom="line")
+dSummaryInterval<- arrange(dSummaryInterval, desc(meanSteps)) # sort descending by mean Steps
+intervalWithMaxSteps <- dSummaryInterval[1,1] 
+```
+**The 5 min interval with max average steps is: `r intervalWithMaxSteps`**
 
 ## Imputing missing values
+**Total number of missing values in the dataset (i.e. the total number of rows with NAs)**
+```{r echo=TRUE, results='markup',message=F, warning=F}
+NAStepsCount <- summarise(d, NAcount=sum(is.na(steps)), total.count=n())
+percentageOfNA <- (NAStepsCount$NAcount[1]/NAStepsCount$total.count[1])*100
+```
+**Total number of NA: `r NAStepsCount$NAcount[1]`**
 
+Percentage of NA among observations: `r percentageOfNA` %
+
+**Strategy to Fill NA enteries**
+We can fill the NA enteries with the averages of their corresponding 5-min intervals accross all the days. If the avergae is not avaiable (i.e. incase this interval had no observation recorded accross all days, we will set it to zero)
+```{r echo=TRUE, results='markup',message=F, warning=F}
+# Copying original dataset to a new data frame before replacing the NAs
+dEstimated <- d
+# creating a lookup list for the average of each interval
+# note the interval will be a chanracter index for the generated array
+intervalMean <-tapply(d$steps, d$interval,mean, na.rm=TRUE)
+#loop on all rows with NA enteries and replace it with the interval average
+for (i in which(is.na(dEstimated)))
+  {
+  avgSteps <- intervalMean[as.character(dEstimated[i,3])]
+  dEstimated[i,1] <- ifelse(is.na(avgSteps), 0, avgSteps)
+  }
+```
+
+**Histogram of the total number of steps taken each day (after replacing NAs with average steps of same intervals)**
+```{r echo=TRUE, results='markup',message=F, warning=F}
+dEstimatedGroupedByDate <- group_by(dEstimated, date)
+dEstimatedSummary<- summarise(dEstimatedGroupedByDate, meanSteps=mean(steps), medianSteps=median(steps, na.rm=TRUE),  totalSteps=sum(steps))
+qplot(totalSteps, data=dEstimatedSummary,geom="histogram")
+
+```
+
+
+**Mean and median total number of steps taken per dayay (after replacing NAs with average):**
+```{r echo=TRUE, results='markup',message=F, warning=F}
+print(dEstimatedSummary, n=nrow(dEstimatedSummary))
+```
+
+**Do these values differ from the estimates from the first part of the assignment?**
+let's have a quick look on the summary of the original and imputed table
+```{r echo=TRUE, results='markup',message=F, warning=F}
+summary(dSummary)
+summary(dEstimatedSummary)
+colSums(dSummary[,2:4], na.rm = T)
+colSums(dEstimatedSummary[,2:4], na.rm = T)
+```
+By comparing the data summaries above, the mean, median and average total steps have the following chnages:
+- The Total average steps has increased after adding the imputated/estimated data
+- The overall mean of steps (for all days) have remained the same, however it has chnaged for the days with imputated/estimates data.
+- The median has chnaged for the days with estimated enteries.
+
+**What is the impact of imputing missing data on the estimates of the total daily number of steps?**
+
+```{r echo=TRUE, results='markup',message=F, warning=F}
+originalTotalDays <- summarise(dSummary, total.steps=sum(totalSteps, na.rm = T))
+imputedTotalDays <- summarise(dEstimatedSummary, total.steps=sum(totalSteps, na.rm = T))
+
+totDaysDiff <- imputedTotalDays[[1]] -originalTotalDays[[1]]
+totDaysDiffPercentage <- (totDaysDiff/originalTotalDays) * 100
+```
+The imputed days added `r totDaysDiff` extra steps representing ad addition of `r totDaysDiffPercentage` % of the original total steps.
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+Creating a new factor variable (dayType) in the dataset with two levels -- "weekday" and "weekend" indicating whether a given date is a weekday or weekend day
+
+```{r echo=TRUE, results='markup',message=F, warning=F}
+dEstimated$dayType <- ifelse((weekdays(dEstimated$date) %in% c('Sunday','Saturday')), 'weekend', 'weekday')
+dEstimated$dayType <- as.factor(dEstimated$dayType)
+str(dEstimated)
+```
+
+a panel plot containing a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis). The plot should look something like the following, which was created using simulated data
+
+```{r echo=TRUE, results='markup',message=F, warning=F}
+dGrpByDayTypeInterval <- group_by(dEstimated, dayType, interval)
+dSummaryDayTypeInterval<- summarise(dGrpByDayTypeInterval, meanSteps=mean(steps, na.rm=TRUE))
+qplot(interval, meanSteps, data=dSummaryDayTypeInterval,geom="line", facets = dayType~., ylab = "Average Number of Steps")
+```
+
+
